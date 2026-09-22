@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="StableVQ provides practical, parameter-free guidelines for stable vector-quantized tokenizer training.">
+  <meta name="theme-color" content="#f7f5ef">
+  <meta property="og:title" content="StableVQ">
+  <meta property="og:description" content="Practical Guidelines for Stable Vector-Quantized Tokenizer Training">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/failure-modes.png">
+  <title>StableVQ — Stable Vector-Quantized Tokenizer Training</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body id="top">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="wordmark" href="#top" aria-label="StableVQ home">
+        <span class="wordmark-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        StableVQ
+      </a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span></span><span></span>
+        <span class="sr-only">Toggle navigation</span>
+      </button>
+      <nav class="site-nav" id="site-nav" aria-label="Main navigation">
+        <a href="#top">Overview</a>
+        <a href="#overview">Motivation</a>
+        <a href="#method">Method</a>
+        <a href="#ablations">Ablations</a>
+        <a href="#robustness">Robustness</a>
+        <a href="#results">Results</a>
+        <a href="#citation">Citation</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero section-shell">
+      <div class="hero-copy reveal">
+        <p class="eyebrow"><span></span> Vector-Quantized Tokenizer Training</p>
+        <h1 class="paper-title">
+          <span class="title-brand">StableVQ</span>
+          <span class="title-subject">Practical Guidelines for<br>Stable Vector-Quantized<br>Tokenizer Training</span>
+        </h1>
+        <p class="hero-lede">A separation-of-concerns framework that turns stable VQ<br>training from a fragile outcome into a principled property.</p>
+        <p class="authors">
+          <span>Bao Tang<sup>1,2,§</sup></span>
+          <span>Jiahao Guo<sup>1,2,§</sup></span>
+          <span>Haoxiang Cao<sup>2,3,§</sup></span>
+          <span>Wenyu Liu<sup>1</sup></span>
+          <span>Changqian Yu<sup>2,†</sup></span>
+          <span>Kun Gai<sup>2</sup></span>
+          <span>Xinggang Wang<sup>1,†</sup></span>
+        </p>
+        <div class="affiliations">
+          <span><sup>1</sup> Huazhong University of Science and Technology</span>
+          <span><sup>2</sup> KlingAI Research</span>
+          <span><sup>3</sup> South China Normal University</span>
+        </div>
+        <p class="author-notes"><sup>§</sup> Work done during internship at KlingAI Research. <sup>†</sup> Corresponding authors.</p>
+
+        <div class="hero-actions" aria-label="Paper links">
+          <a class="button" href="https://arxiv.org/abs/2609.26774" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></svg>
+            Paper
+          </a>
+          <span class="button button-disabled" title="The code link will be added after release">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 9-4 3 4 3m8-6 4 3-4 3m-2-9-4 12"/></svg>
+            Code <small>soon</small>
+          </span>
+          <a class="button button-secondary" href="#citation">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v13H7zM10 4h10v13"/></svg>
+            BibTeX
+          </a>
+        </div>
+      </div>
+
+      <div class="hero-visual reveal" aria-label="StableVQ separates encoder-decoder and codebook optimization">
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <svg class="concern-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M50 53 L27 39"></path>
+          <path d="M50 53 L73 39"></path>
+          <path d="M50 56 L50 69"></path>
+        </svg>
+        <div class="system-card encoder-card">
+          <a class="module-pill blue" href="#dynamic-ste">Dynamic STE</a>
+          <p>Encoder–Decoder</p>
+          <strong>Reliable reconstruction gradients</strong>
+        </div>
+        <div class="system-card codebook-card">
+          <a class="module-pill red" href="#region-vq">Region VQ Loss</a>
+          <p>Codebook</p>
+          <strong>Explicit distribution tracking</strong>
+        </div>
+        <div class="separation-hub">
+          <strong>Separation<br>of concerns</strong>
+        </div>
+        <div class="system-card schedule-card">
+          <a class="module-pill green" href="#decoupled-schedule">Decoupled Schedule</a>
+          <p>Optimization</p>
+          <strong>Module-specific learning-rate schedules</strong>
+        </div>
+        <div class="metric-chip metric-a"><strong>100%</strong><span>utilization</span></div>
+        <div class="metric-chip metric-b"><strong>0</strong><span>new parameters</span></div>
+      </div>
+    </section>
+
+    <section class="paper-section section-shell" id="overview">
+      <div class="section-heading reveal">
+        <p class="section-kicker">01 · Motivation</p>
+        <h2>Instability in VQ training</h2>
+        <p>We show three characteristic failure modes encountered during actual VQ training.<br>The top row illustrates evolving token–code distributions; the bottom row shows their corresponding codebook-usage trajectories.</p>
+      </div>
+      <figure class="figure-card wide reveal">
+        <img src="assets/failure-modes.png" alt="Three VQ training failure modes caused by changing relationships between token and code distributions" loading="eager">
+      </figure>
+      <aside class="ablation-reading failure-reading reveal" aria-label="Explanation of the three failure modes">
+        <p><strong>(a) Code scale ≪ Token scale</strong>Low utilization leaves the Codebook with sparse optimization targets, while competing STE-passed reconstruction and commitment gradients make tokens fluctuate. The result is prolonged low utilization; severe fluctuations can trigger commitment-loss spikes and NaN gradients before the Codebook recovers.</p>
+        <p><strong>(b) Code scale ≫ Token scale</strong>Codes within the token distribution’s range activate first. As these codes fit the tokens, commitment and VQ losses diminish, weakening the signal reaching out-of-range codes. Most remain unreachable through nearest-neighbor assignment, becoming permanent dead codes.</p>
+        <p><strong>(c) Scale Divergence</strong>Even a well-utilized Codebook can fall behind a sudden shift in the token distribution. Erroneous STE gradients then amplify the mismatch instead of correcting it, creating a positive-feedback loop that rapidly separates the distributions and collapses utilization.</p>
+      </aside>
+      <div class="subsection-band concern-overview">
+      <div class="concerns-intro reveal">
+        <p class="section-kicker">Our perspective · Separation of concerns</p>
+        <h3>One training system. Two distinct responsibilities.</h3>
+        <p>The Encoder–Decoder learns <strong>representations for reconstruction under discrete regularization</strong>. The Codebook performs <strong>distribution alignment</strong>. Existing VQ pipelines do not fully separate these objectives: unreliable encoder updates and incomplete codebook learning can destabilize one another.</p>
+        <p class="concerns-thesis"><strong>What does each subsystem need to fulfill its own responsibility?</strong></p>
+      </div>
+
+      <div class="concern-pair">
+        <article class="concern-panel encoder-concern reveal">
+          <p class="concern-owner">Encoder–Decoder / Learn the representation</p>
+          <h3>Which gradient should a token trust?</h3>
+          <p class="concern-objective">Optimize the task objective while respecting the discrete constraint.</p>
+          <div class="concern-body">
+            <p>The Encoder receives two signals: an end-task gradient passed through the STE, and a commitment gradient pulling tokens toward their assigned codes. Their balance is critical as both distributions evolve.</p>
+            <p>But the end-task gradient is evaluated <strong>at the code, not at the token</strong>. When the pair is far apart, a useful direction for the code can be misleading for the token—even pushing it away from its assigned code, against the commitment signal.</p>
+            <p>The mismatch can then reinforce itself: unreliable gradients pull the distributions further apart, making subsequent estimates worse. This feedback can ultimately cause extremely low codebook utilization or even NaN values; the <strong>Scale Divergence</strong> described above is one example.</p>
+          </div>
+          <div class="concern-response">
+            <p><strong>Make gradient trust distance-aware.</strong> Attenuate the STE-passed end-task gradient for relatively distant token–code assignments.</p>
+            <a class="module-pill blue" href="#dynamic-ste">Dynamic STE</a>
+          </div>
+        </article>
+
+        <article class="concern-panel codebook-concern reveal">
+          <p class="concern-owner">Codebook / Track the distribution</p>
+          <h3>Where should an unused code go?</h3>
+          <p class="concern-objective">Fit the code distribution to the evolving token distribution.</p>
+          <div class="concern-body">
+            <p>In conventional VQ training, the Codebook receives only one learning signal—the VQ loss—but this signal has two limitations:</p>
+            <ol class="concern-gaps">
+              <li><strong>Missing targets.</strong> Only selected codes receive direct supervision; when utilization is low, most codes receive no learning signal.</li>
+              <li><strong>Unused allocation information.</strong> Hit frequency affects the update magnitude of selected codes, but is not translated into guidance for the distribution of the Codebook as a whole.</li>
+            </ol>
+            <p>Shared projectors spread gradients to inactive codes, but do not assign them explicit targets. Their activation can still depend on incidental movement rather than directed learning. <strong>Making a code move is not the same as telling it where to go.</strong></p>
+          </div>
+          <div class="concern-response">
+            <p><strong>Turn frequency into allocation.</strong> Propagate targets to inactive codes in proportion to hit frequency, providing dense and directed learning signals.</p>
+            <a class="module-pill red" href="#region-vq">Region VQ Loss</a>
+          </div>
+        </article>
+      </div>
+
+      </div>
+      <article class="schedule-concern subsection-band reveal">
+        <div class="schedule-question">
+          <p class="concern-owner">Joint optimization / Respect both objectives</p>
+          <h3>Different responsibilities.<br>Why the same schedule?</h3>
+          <a class="module-pill green" href="#decoupled-schedule">Decoupled Schedule</a>
+        </div>
+        <div class="schedule-reasoning">
+          <p>Once each subsystem has an appropriate learning signal, we revisit how they learn together. Warmup and annealing help the Encoder–Decoder balance its complex objectives. The Codebook has a cleaner task: continuously track a changing distribution.</p>
+          <p>Making the Codebook follow the same schedule can unnecessarily slow that tracking, especially early in training. We therefore study the schedules <strong>independently</strong>: retain warmup and annealing for the Encoder–Decoder, and sustain a sufficiently high learning rate for the Codebook.</p>
+          <p class="schedule-conclusion">Separate the objectives first. <strong>Then give each the optimization dynamics it needs.</strong></p>
+        </div>
+      </article>
+    </section>
+
+    <section class="paper-section method-section" id="method">
+      <div class="section-shell">
+        <div class="section-heading reveal">
+          <p class="section-kicker">02 · Method</p>
+          <h2>Isolate the cause. Test the intervention.</h2>
+          <p>Three lightweight, parameter-free components follow from this separation. Controlled pilot studies test each premise:<br>freeze one subsystem to examine the other, then vary their schedules independently.</p>
+        </div>
+
+        <article class="method-row subsection-band reveal" id="dynamic-ste">
+          <div class="method-copy">
+            <span class="method-number">01</span>
+            <p class="method-owner">For the Encoder–Decoder</p>
+            <h3>Dynamic STE</h3>
+            <p>Use the closest token in the batch as a reference for each code. Weight a token’s STE gradient by the reference squared distance divided by its own squared distance to that code. The best match retains its full gradient; relatively distant assignments are attenuated.</p>
+            <ul class="feature-list">
+              <li>No threshold hyperparameter</li>
+              <li>Attenuates unreliable gradients</li>
+              <li>Only changes the magnitude of the backward signal</li>
+            </ul>
+          </div>
+          <figure class="method-figure">
+            <img src="assets/dynamic-ste.png" alt="Dynamic STE design and controlled training-loss comparison" loading="lazy">
+          </figure>
+          <div class="pilot-study">
+            <div class="pilot-heading"><p class="experiment-label">Pilot study / Isolate the Encoder–Decoder</p><h4>Can training fail even when the Codebook stays fixed?</h4></div>
+            <dl class="pilot-grid">
+              <div><dt>Controlled setup</dt><dd>Freeze the Codebook and train only the Encoder–Decoder. Compare standard STE with Dynamic STE, tracking reconstruction and commitment losses.</dd></div>
+              <div><dt>Observed result</dt><dd>Standard STE produces commitment-loss spikes and reconstruction oscillations, eventually reaching NaN. Dynamic STE keeps commitment loss controlled while reconstruction loss falls.</dd></div>
+              <div><dt>What this isolates</dt><dd><strong>Codebook motion is not required for instability.</strong> The gradient estimation gap can destabilize Encoder training on its own.</dd></div>
+            </dl>
+          </div>
+        </article>
+
+        <article class="method-row subsection-band reveal" id="region-vq">
+          <div class="method-copy">
+            <span class="method-number">02</span>
+            <p class="method-owner">For the Codebook</p>
+            <h3>Region VQ Loss</h3>
+            <p>Active codes propagate their token-mean targets to nearby persistently inactive codes, with quotas proportional to hit frequency. A FIFO activity window protects recently active codes; overlapping recipients average the targets they receive.</p>
+            <ul class="feature-list">
+              <li>Dense, localized and directed supervision</li>
+              <li>Distribution-aware code allocation</li>
+              <li>More inactive codes directed toward higher token mass</li>
+            </ul>
+          </div>
+          <figure class="method-figure">
+            <img src="assets/region-vq.png" alt="Region VQ target propagation and codebook distribution alignment over training" loading="lazy">
+          </figure>
+          <div class="pilot-study">
+            <div class="pilot-heading"><p class="experiment-label">Pilot study / Isolate the Codebook</p><h4>Can the Codebook align without help from a moving Encoder?</h4></div>
+            <dl class="pilot-grid">
+              <div><dt>Controlled setup</dt><dd>Freeze the Encoder and train only the Codebook, using an expressive two-layer ViT shared projector. Visualize tokens and codes at steps 0, 500, and 5,000.</dd></div>
+              <div><dt>Observed result</dt><dd>Standard VQ loss reaches only <strong>12.5% utilization at 5,000 steps</strong>. Region VQ reaches <strong>100% by step 500</strong> and maintains it.</dd></div>
+              <div><dt>What this isolates</dt><dd><strong>A shared projector alone does not supply the missing objective.</strong> Directed targets let the Codebook align without relying on Encoder fluctuations to activate codes.</dd></div>
+            </dl>
+          </div>
+        </article>
+
+        <article class="method-row subsection-band reveal" id="decoupled-schedule">
+          <div class="method-copy">
+            <span class="method-number">03</span>
+            <p class="method-owner">For system-level optimization</p>
+            <h3>Decoupled Schedule</h3>
+            <p>Use separate learning-rate schedules for the two subsystems: the Encoder–Decoder uses warmup &amp; annealing, while the Codebook uses a sufficiently high constant rate to track evolving tokens from the first step.</p>
+            <ul class="feature-list">
+              <li>Warmup + annealing for reconstruction</li>
+              <li>Sustained learning rate for distribution tracking</li>
+              <li>No additional forward or backward operation</li>
+            </ul>
+          </div>
+          <figure class="method-figure">
+            <img src="assets/decoupled-schedule.png" alt="Controlled study of learning-rate schedules for the encoder-decoder and codebook" loading="lazy">
+          </figure>
+          <div class="pilot-study">
+            <div class="pilot-heading"><p class="experiment-label">Pilot study / Separate the schedules</p><h4>Which subsystem actually needs warmup and annealing?</h4></div>
+            <dl class="pilot-grid schedule-pilot">
+              <div><dt>Left · FVQ architecture</dt><dd>Vary which module uses warmup and annealing. A constant Codebook rate preserves reconstruction quality; making the Encoder–Decoder constant-rate as well causes a clear quality drop.</dd></div>
+              <div><dt>Right · SimVQ architecture</dt><dd>Compare Codebook warmup-and-annealing at 10<sup>−4</sup> with constant rates of 10<sup>−4</sup> and 10<sup>−3</sup>. The higher constant rate yields substantially better utilization—not merely a change in schedule shape.</dd></div>
+            </dl>
+            <p class="pilot-conclusion"><strong>The two subsystems benefit from different optimization dynamics:</strong> scheduled convergence for representation learning, sustained updates for distribution tracking.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="paper-section section-shell ablation-section" id="ablations">
+      <div class="section-heading reveal">
+        <p class="section-kicker">03 · Component ablations</p>
+        <h2>Why each component matters</h2>
+        <p>Two opposing distribution mismatches expose complementary optimization needs:<br>stable encoder gradients, explicit codebook targets, and fast distribution tracking.</p>
+      </div>
+
+      <article class="experiment-block subsection-band reveal" id="expansion">
+        <div class="experiment-heading">
+          <p class="experiment-label">Ablation 01 / Expansion</p>
+          <h3>Stability and code coverage need to improve together</h3>
+          <p>Small-range initialization · Linear-1 projector. The baseline uses warmup and annealing with a peak learning rate of 10<sup>−4</sup>;<br>Decoupled Schedule gives the codebook a constant 10<sup>−3</sup> learning rate.</p>
+        </div>
+        <div class="ablation-table-scroll" role="region" aria-label="Codebook expansion: all eight component combinations" tabindex="0">
+          <table class="ablation-table expansion-table">
+              <thead>
+                <tr>
+                  <th scope="col">Region VQ</th><th scope="col">Dyn. STE</th><th scope="col">De. Sch.</th><th scope="col">Peak Commit.</th><th scope="col">Usage ↑</th><th scope="col">rFID ↓</th><th scope="col">LPIPS ↓</th><th scope="col">PSNR ↑</th><th scope="col">SSIM ↑</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>—</td><td>—</td><td>—</td><td>53.11</td><td>49.13%</td><td>2.06</td><td>0.2297</td><td>21.65</td><td>0.5730</td></tr>
+                <tr class="collapsed"><td class="component-on">✓</td><td>—</td><td>—</td><td>&gt;200 (NaN)</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr><td>—</td><td class="component-on">✓</td><td>—</td><td>&lt;0.1</td><td>1.27%</td><td>6.68</td><td>0.3100</td><td>19.89</td><td>0.5026</td></tr>
+                <tr><td>—</td><td>—</td><td class="component-on">✓</td><td>&lt;0.1</td><td>83.77%</td><td>1.71</td><td>0.2209</td><td>21.79</td><td>0.5864</td></tr>
+                <tr><td>—</td><td class="component-on">✓</td><td class="component-on">✓</td><td>&lt;0.1</td><td>21.66%</td><td>2.07</td><td>0.2354</td><td>21.36</td><td>0.5665</td></tr>
+                <tr><td class="component-on">✓</td><td class="component-on">✓</td><td>—</td><td>&lt;0.1</td><td><strong>100%</strong></td><td>1.72</td><td><strong>0.2200</strong></td><td>21.84</td><td>0.5854</td></tr>
+                <tr><td class="component-on">✓</td><td>—</td><td class="component-on">✓</td><td>&lt;0.1</td><td><strong>100%</strong></td><td>1.75</td><td>0.2206</td><td><strong>21.85</strong></td><td>0.5860</td></tr>
+                <tr class="best-row"><td class="component-on">✓</td><td class="component-on">✓</td><td class="component-on">✓</td><td>&lt;0.1</td><td><strong>100%</strong></td><td><strong>1.70</strong></td><td>0.2208</td><td>21.81</td><td><strong>0.5879</strong></td></tr>
+              </tbody>
+            </table>
+        </div>
+        <p class="table-note">✓ component enabled · Dyn. STE: Dynamic STE · De. Sch.: Decoupled Schedule · Peak Commit.: peak commitment loss. Bold marks the best value in each metric.</p>
+        <div class="ablation-reading">
+          <p><strong>Dynamic STE</strong> controls commitment-loss spikes; low usage reveals conventional VQ’s reliance on Encoder fluctuations.</p>
+          <p><strong>Decoupled Schedule</strong> improves tracking and raises usage to 83.77%, while standard VQ still leaves codes inactive.</p>
+          <p><strong>Region VQ Loss</strong> recovers 100% usage with either component; alone, slow codebook updates under warmup lead to NaN collapse.</p>
+        </div>
+        <p class="experiment-takeaway">Together, all three components achieve <strong>100% utilization and 1.70 rFID</strong>, combining stable gradients, dense supervision, and sustained tracking.</p>
+      </article>
+
+      <article class="experiment-block subsection-band reveal" id="shrinkage">
+        <div class="experiment-heading">
+          <p class="experiment-label">Ablation 02 / Shrinkage</p>
+          <h3>Inactive codes need explicit learning targets</h3>
+          <p>1024-dimensional codebook · ViTBlock-2 projector. With ℓ₂ normalization, codes are broadly distributed while image tokens concentrate in a smaller region.</p>
+        </div>
+        <div class="ablation-table-scroll" role="region" aria-label="Codebook shrinkage across uniform and Gaussian initialization" tabindex="0">
+          <table class="ablation-table shrinkage-table">
+              <thead>
+                <tr><th scope="col">Projector</th><th scope="col">Region VQ</th><th scope="col">Initialization</th><th scope="col">Usage ↑</th><th scope="col">rFID ↓</th><th scope="col">PSNR ↑</th><th scope="col">SSIM ↑</th><th scope="col">LPIPS ↓</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>ViTBlock-2</td><td>—</td><td>Uniform</td><td>18.75%</td><td>2.4355</td><td>20.9789</td><td>0.5677</td><td>0.2414</td></tr>
+                <tr><td>ViTBlock-2</td><td>—</td><td>Gaussian</td><td>62.50%</td><td>1.9530</td><td>21.3774</td><td>0.5836</td><td>0.2273</td></tr>
+                <tr class="best-row"><td>ViTBlock-2</td><td class="component-on">✓</td><td>Uniform</td><td><strong>100%</strong></td><td><strong>1.8176</strong></td><td><strong>21.5497</strong></td><td>0.5896</td><td><strong>0.2210</strong></td></tr>
+                <tr class="best-row"><td>ViTBlock-2</td><td class="component-on">✓</td><td>Gaussian</td><td><strong>100%</strong></td><td>1.8966</td><td>21.4603</td><td><strong>0.5931</strong></td><td>0.2255</td></tr>
+              </tbody>
+            </table>
+        </div>
+        <p class="experiment-takeaway">Region VQ restores <strong>100% utilization under both initializations</strong> and improves reconstruction across all metrics, with the strong shared projector used in FVQ.</p>
+      </article>
+    </section>
+
+    <section class="paper-section robustness-section" id="robustness">
+      <div class="section-shell">
+        <div class="section-heading reveal">
+        <p class="section-kicker">04 · Robustness analysis</p>
+        <h2>Testing across a broader range of configurations</h2>
+        <p>Continuous sweeps test sensitivity to initialization, projector design, and learning rate.<br>Usage-recovery experiments then evaluate the full method under evolving token–code mismatch.</p>
+      </div>
+        <div class="combined-analysis subsection-band reveal">
+          <div class="experiment-heading">
+            <p class="experiment-label">Appendix D.1–D.2 / Initialization &amp; shared projectors</p>
+            <h3>Initialization and projector sensitivity</h3>
+          </div>
+          <p class="analysis-protocol"><strong>Controlled setting</strong> Frozen Encoder · fixed target distribution · utilization at 5K steps · 65,536-token measurement window</p>
+          <figure class="figure-card analysis-figure">
+            <img src="assets/analysis-combined.png" width="4082" height="1574" alt="Combined analysis figure: (a) Usage at 5K steps across Gaussian initialization scales for Linear-1 and ViTBlock-2; (b) Usage at 5K steps across learning rates for Linear-2, MLP-2, and ViTBlock-2, comparing standard VQ loss with Region VQ Loss" loading="lazy">
+          </figure>
+          <div class="analysis-notes">
+            <article id="initialization-analysis">
+              <h4>(a) Initialization scale · D.1</h4>
+              <p>Vary the Gaussian standard deviation from 10<sup>−5</sup> to 10<sup>−1</sup> with Linear-1 and ViTBlock-2 shared projectors. Small scales slow recovery with Linear-1; larger scales leave many codes inactive with ViTBlock-2.</p>
+              <p><strong>Region VQ keeps both near full utilization across the tested scales.</strong></p>
+            </article>
+            <article id="projector-analysis">
+              <h4>(b) Projector &amp; learning rate · D.2</h4>
+              <p>Fix the Gaussian initialization scale at 10<sup>−4</sup> and vary the learning rate for Linear-2, MLP-2, and ViTBlock-2. Linear and MLP projectors recover slowly; ViTBlock-2 loses usage at large learning rates.</p>
+              <p><strong>Region VQ broadens the usable learning-rate range across all three designs.</strong></p>
+            </article>
+          </div>
+        </div>
+        <div class="recovery-study subsection-band">
+                <div class="results-split">
+        <figure class="figure-card reveal">
+          <img src="assets/usage-recovery.png" alt="Codebook usage recovery heatmaps for SimVQ, FVQ and StableVQ" loading="lazy">
+          <figcaption><strong>Usage recovery.</strong> StableVQ rapidly restores high codebook usage across a broad range of initialization scales.</figcaption>
+        </figure>
+        <div class="result-copy reveal">
+          <p class="section-kicker">Robustness under mismatch</p>
+          <h3>Recovery across distribution mismatch</h3>
+          <p>Each heatmap row tests a different initial token–code relationship. StableVQ recovers usage across a broad range of mismatch settings.<br>Usage Recovery AUC summarizes the usage trajectories across these settings; higher is better.</p>
+          <div class="mini-comparison">
+            <span><i style="--w: 3.58%"></i><b>SimVQ</b><em>2.17 UR-AUC</em></span>
+            <span><i style="--w: 13.34%"></i><b>FVQ</b><em>8.08 UR-AUC</em></span>
+            <span class="ours"><i style="--w: 100%"></i><b>StableVQ</b><em>60.59 UR-AUC</em></span>
+          </div>
+        </div>
+      </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="paper-section section-shell" id="results">
+      <div class="section-heading reveal">
+        <p class="section-kicker">05 · Reconstruction &amp; generation</p>
+        <h2>Stable training, strong visual tokens</h2>
+        <p>On ImageNet 256×256, StableVQ combines full codebook utilization with strong reconstruction and competitive downstream class-conditional generation.</p>
+      </div>
+            <div class="metric-grid reveal">
+        <article class="result-metric">
+          <span>Codebook usage</span>
+          <strong>100<sup>%</sup></strong>
+          <p>for both 16K and 262K codebooks</p>
+        </article>
+        <article class="result-metric accent">
+          <span>Reconstruction · 16K</span>
+          <strong>1.13</strong>
+          <p>rFID · 120 epochs</p>
+        </article>
+        <article class="result-metric">
+          <span>Reconstruction · 262K</span>
+          <strong>0.92</strong>
+          <p>rFID · 120 epochs</p>
+        </article>
+        <article class="result-metric accent-blue">
+          <span>Generation FID</span>
+          <strong>2.18</strong>
+          <p>ImageNet 256×256 with IBQ-L generator</p>
+        </article>
+      </div>
+            <div class="table-wrap reveal" role="region" aria-label="Selected reconstruction results" tabindex="0">
+        <div class="table-title">
+          <p class="section-kicker">Selected reconstruction results</p>
+          <span>ImageNet 256×256 · 16×16 tokens</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th scope="col">Method</th><th scope="col">Projector</th><th scope="col">Epochs</th><th scope="col">Codebook</th><th scope="col">rFID ↓</th><th scope="col">LPIPS ↓</th><th scope="col">Usage ↑</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>SimVQ</td><td>Linear-1</td><td>40</td><td>16K × 256</td><td>2.89</td><td>0.2492</td><td>100%</td></tr>
+            <tr><td>FVQ</td><td>ViTBlock-2</td><td>40</td><td>16K × 256</td><td>1.70</td><td>0.2176</td><td>100%</td></tr>
+            <tr class="ours"><td>StableVQ</td><td>Linear-1</td><td>40</td><td>16K × 256</td><td>1.22</td><td>0.2235</td><td>100%</td></tr>
+            <tr class="ours"><td>StableVQ</td><td>Linear-1</td><td>120</td><td>16K × 256</td><td>1.13</td><td>0.2134</td><td>100%</td></tr>
+            <tr class="ours"><td>StableVQ</td><td>Linear-1</td><td>120</td><td>262K × 256</td><td><strong>0.92</strong></td><td><strong>0.1893</strong></td><td>100%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="paper-section gallery-section" id="visuals">
+      <div class="section-shell">
+        <div class="section-heading reveal">
+          <p class="section-kicker">06 · Visual results</p>
+          <h2>Preserving details at large vocabulary scale</h2>
+          <p>StableVQ produces faithful reconstructions with 16K and 262K codebooks, and supports competitive class-conditional generation.</p>
+        </div>
+        <div class="gallery-tabs reveal" role="tablist" aria-label="Qualitative result type">
+          <button class="gallery-tab active" type="button" role="tab" aria-selected="true" data-image="assets/reconstruction-16k.webp" data-alt="Qualitative reconstruction comparison with a 16K codebook" data-caption="Reconstruction with a 16K codebook">Reconstruction · 16K</button>
+          <button class="gallery-tab" type="button" role="tab" aria-selected="false" data-image="assets/reconstruction-262k.webp" data-alt="Qualitative reconstruction comparison with a 262K codebook" data-caption="Reconstruction with a 262K codebook">Reconstruction · 262K</button>
+          <button class="gallery-tab" type="button" role="tab" aria-selected="false" data-image="assets/generation.webp" data-alt="Class-conditional samples generated from StableVQ tokens" data-caption="Class-conditional generation samples">Generation</button>
+        </div>
+        <figure class="gallery-frame reveal">
+          <img id="gallery-image" src="assets/reconstruction-16k.webp" alt="Qualitative reconstruction comparison with a 16K codebook" loading="lazy">
+          <figcaption id="gallery-caption">Reconstruction with a 16K codebook</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="paper-section section-shell" id="citation">
+      <div class="citation-grid">
+        <div class="section-heading reveal">
+          <p class="section-kicker">07 · Citation</p>
+          <h2>Build on StableVQ</h2>
+          <p>If StableVQ is useful for your research, please consider citing our work.</p>
+          <p class="contact-line">Questions: <a href="mailto:xgwang@hust.edu.cn">X. Wang</a> · <a href="mailto:y-changqian@outlook.com">C. Yu</a></p>
+        </div>
+        <div class="code-card reveal">
+          <div class="code-toolbar"><span>BibTeX</span><button id="copy-bibtex" type="button">Copy</button></div>
+          <pre><code id="bibtex">@misc{tang2026stablevq,
+  title={StableVQ: Practical Guidelines for Stable Vector-Quantized Tokenizer Training},
+  author={Bao Tang and Jiahao Guo and Haoxiang Cao and Wenyu Liu and Changqian Yu and Kun Gai and Xinggang Wang},
+  year={2026},
+  eprint={2609.26774},
+  archivePrefix={arXiv},
+  primaryClass={cs.CV},
+  url={https://arxiv.org/abs/2609.26774},
+}</code></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="section-shell footer-grid">
+      <div><strong>StableVQ</strong><p>Practical, stable vector-quantized tokenizer training.</p></div>
+      <div class="acknowledgment"><span>Acknowledgments</span><p>This work was partially supported by the National Natural Science Foundation of China under Grant U25B2067.</p></div>
+      <a class="back-top" href="#top">Back to top ↑</a>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
